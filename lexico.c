@@ -1,296 +1,219 @@
+#include "compiler.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
 
-#define MAX_TOKEN_LENGTH 100
-#define MAX_SYMBOLS 100
-
-// Token types
-enum TokenType {
-    TOKEN_IDENTIFIER,
-    TOKEN_INTEGER,
-    TOKEN_FLOAT,
-    TOKEN_OPERATOR,
-    TOKEN_DELIMITER,
-    TOKEN_KEYWORD,
-    TOKEN_STRING,
-    TOKEN_CHAR,
-    TOKEN_COMMENT,
-    TOKEN_EOF,
-    TOKEN_ERROR
-};
-
 const char *TokenTypeNames[] = {
-    "TOKEN_IDENTIFIER",
-    "TOKEN_INTEGER",
-    "TOKEN_FLOAT",
-    "TOKEN_OPERATOR",
-    "TOKEN_DELIMITER",
-    "TOKEN_KEYWORD",
-    "TOKEN_STRING",
-    "TOKEN_CHAR",
-    "TOKEN_COMMENT",
-    "TOKEN_EOF",
-    "TOKEN_ERROR"
+    "IDENTIFIER",
+    "INTEGER",
+    "FLOAT",
+    "OPERATOR",
+    "DELIMITER",
+    "KEYWORD",
+    "STRING",
+    "CHAR",
+    "COMMENT",
+    "SEMICOLON",
+    "EOF",
+    "ERROR"
 };
 
-// Token structure
-typedef struct {
-    enum TokenType type;
-    char value[MAX_TOKEN_LENGTH];
-    int line;
-    int column;
-} Token;
-
-// Symbol table structure
-typedef struct {
-    char name[MAX_TOKEN_LENGTH];
-    int id;
-} Symbol;
+const char* SQL_KEYWORDS[] = {
+    "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE",
+    "CREATE", "DROP", "TABLE", "DATABASE", "ALTER", "INDEX",
+    "AND", "OR", "NOT", "IN", "BETWEEN", "LIKE", "IS", "NULL",
+    "ORDER", "BY", "GROUP", "HAVING", "JOIN", "LEFT", "RIGHT",
+    "INNER", "OUTER", "ON", "AS", "DISTINCT", "COUNT", "SUM",
+    "AVG", "MAX", "MIN", "INTO", "VALUES", "SET", NULL
+};
 
 Symbol symbolTable[MAX_SYMBOLS];
 int symbolCount = 0;
+CompilerError currentError = {NULL, 0, 0, ""};
 
-// Function to check if a symbol is already in the table
-int findSymbol(const char *name) {
-    for (int i = 0; i < symbolCount; i++) {
-        if (strcmp(symbolTable[i].name, name) == 0) {
-            return i; // Return the index in the table
+bool isKeyword(const char* str) {
+    char upperStr[MAX_TOKEN_LENGTH];
+    strncpy(upperStr, str, MAX_TOKEN_LENGTH - 1);
+    upperStr[MAX_TOKEN_LENGTH - 1] = '\0';
+    
+    for(int i = 0; upperStr[i]; i++) {
+        upperStr[i] = toupper(upperStr[i]);
+    }
+    
+    for(int i = 0; SQL_KEYWORDS[i] != NULL; i++) {
+        if(strcmp(upperStr, SQL_KEYWORDS[i]) == 0) {
+            return true;
         }
     }
-    return -1; // Not found
+    return false;
 }
 
-// Function to add a symbol to the table
-int addSymbol(const char *name) {
-    if (symbolCount >= MAX_SYMBOLS) {
-        printf("Error: Symbol table is full!\n");
+int findSymbol(const char *name) {
+    for(int i = 0; i < symbolCount; i++) {
+        if(strcmp(symbolTable[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int addSymbol(const char *name, const char *type, int scope) {
+    if(symbolCount >= MAX_SYMBOLS) {
         return -1;
     }
+    if(findSymbol(name) != -1) {
+        return findSymbol(name);
+    }
+    
     strcpy(symbolTable[symbolCount].name, name);
+    strcpy(symbolTable[symbolCount].type, type);
+    symbolTable[symbolCount].scope = scope;
     symbolTable[symbolCount].id = symbolCount + 1;
     return symbolCount++;
 }
 
-// Function to get the next token
+void printSymbolTable() {
+    printf("\nSymbol Table:\n");
+    printf("ID | Name                | Type      | Scope\n");
+    printf("---|---------------------|-----------|-------\n");
+    for(int i = 0; i < symbolCount; i++) {
+        printf("%-3d| %-19s | %-9s | %d\n",
+            symbolTable[i].id,
+            symbolTable[i].name,
+            symbolTable[i].type,
+            symbolTable[i].scope);
+    }
+    printf("\n");
+}
+
 Token getNextToken(FILE *input, int *line, int *column) {
     Token token;
     token.line = *line;
     token.column = *column;
     token.value[0] = '\0';
-
+    
     int c;
     int pos = 0;
-
-    // Ignore whitespace
-    while ((c = fgetc(input)) != EOF && isspace(c)) {
-        if (c == '\n') {
+    
+    // Skip whitespace
+    while((c = fgetc(input)) != EOF && isspace(c)) {
+        if(c == '\n') {
             (*line)++;
             *column = 1;
         } else {
             (*column)++;
         }
     }
-
-    if (c == EOF) {
+    
+    if(c == EOF) {
         token.type = TOKEN_EOF;
         strcpy(token.value, "EOF");
         return token;
     }
-
-    // Identify comments
-    if (c == '-') {
-        int nextChar = fgetc(input);
-        (*column)++;
-        if (nextChar == '-') { // Single-line comment
-            token.type = TOKEN_COMMENT;
-            token.value[pos++] = c;
-            token.value[pos++] = nextChar;
-            while ((c = fgetc(input)) != EOF && c != '\n') {
+    
+    // Handle comments
+    if(c == '-' && (c = fgetc(input)) == '-') {
+        token.type = TOKEN_COMMENT;
+        while((c = fgetc(input)) != EOF && c != '\n') {
+            if(pos < MAX_TOKEN_LENGTH - 1) {
                 token.value[pos++] = c;
-                (*column)++;
             }
-            token.value[pos] = '\0';
-            if (c == '\n') {
+        }
+        if(c == '\n') {
+            (*line)++;
+            *column = 1;
+        }
+        token.value[pos] = '\0';
+        return token;
+    }
+    
+    // Handle string literals
+    if(c == '\'' || c == '"') {
+        char delimiter = c;
+        token.type = TOKEN_STRING;
+        token.value[pos++] = c;
+        while((c = fgetc(input)) != EOF && c != delimiter) {
+            if(pos >= MAX_TOKEN_LENGTH - 1) break;
+            if(c == '\n') {
                 (*line)++;
                 *column = 1;
             }
-            return token;
-        } else {
-            ungetc(nextChar, input);
-        }
-    } else if (c == '/') {
-        int nextChar = fgetc(input);
-        (*column)++;
-        if (nextChar == '*') { // Multi-line comment
-            token.type = TOKEN_COMMENT;
             token.value[pos++] = c;
-            token.value[pos++] = nextChar;
-            while ((c = fgetc(input)) != EOF) {
-                token.value[pos++] = c;
-                (*column)++;
-                if (c == '*') {
-                    int nextNextChar = fgetc(input);
-                    (*column)++;
-                    if (nextNextChar == '/') {
-                        token.value[pos++] = nextNextChar;
-                        break;
-                    } else {
-                        ungetc(nextNextChar, input);
-                    }
-                } else if (c == '\n') {
-                    (*line)++;
-                    *column = 1;
-                }
-            }
-            if (c == EOF) {
-                token.type = TOKEN_ERROR;
-                strcpy(token.value, "Unterminated comment");
-            }
-            token.value[pos] = '\0';
-            return token;
-        } else {
-            ungetc(nextChar, input);
         }
-    }
-
-    // Identifiers and keywords
-    if (isalpha(c)) {
-        token.type = TOKEN_IDENTIFIER;
-        while (isalnum(c)) {
+        if(c == delimiter) {
             token.value[pos++] = c;
-            c = fgetc(input);
-            (*column)++;
         }
-        ungetc(c, input);
         token.value[pos] = '\0';
-
-        // Check if it's a keyword
-if (strcmp(token.value, "SELECT") == 0 || strcmp(token.value, "FROM") == 0 ||
-    strcmp(token.value, "WHERE") == 0 || strcmp(token.value, "IF") == 0 ||
-    strcmp(token.value, "THEN") == 0 || strcmp(token.value, "END") == 0 ||
-    strcmp(token.value, "INSERT") == 0 || strcmp(token.value, "UPDATE") == 0 ||
-    strcmp(token.value, "DELETE") == 0 || strcmp(token.value, "CREATE") == 0 ||
-    strcmp(token.value, "ALTER") == 0 || strcmp(token.value, "DROP") == 0 ||
-    strcmp(token.value, "JOIN") == 0 || strcmp(token.value, "ON") == 0 ||
-    strcmp(token.value, "GROUP") == 0 || strcmp(token.value, "BY") == 0 ||
-    strcmp(token.value, "HAVING") == 0 || strcmp(token.value, "ORDER") == 0 ||
-    strcmp(token.value, "LIMIT") == 0 || strcmp(token.value, "UNION") == 0) {
-    token.type = TOKEN_KEYWORD;
-} else {
-            // Add identifier to the symbol table
-            if (findSymbol(token.value) == -1) {
-                addSymbol(token.value);
-            }
-        }
+        return token;
     }
-    // Numbers (integers and floats)
-    else if (isdigit(c)) {
+    
+    // Handle numbers
+    if(isdigit(c)) {
         token.type = TOKEN_INTEGER;
-        while (isdigit(c)) {
-            token.value[pos++] = c;
-            c = fgetc(input);
-            (*column)++;
-        }
-        if (c == '.') {
-            token.type = TOKEN_FLOAT;
-            token.value[pos++] = c;
-            c = fgetc(input);
-            (*column)++;
-            while (isdigit(c)) {
-                token.value[pos++] = c;
-                c = fgetc(input);
-                (*column)++;
+        while(isdigit(c) || c == '.') {
+            if(c == '.') {
+                if(token.type == TOKEN_FLOAT) {
+                    token.type = TOKEN_ERROR;
+                    break;
+                }
+                token.type = TOKEN_FLOAT;
             }
+            token.value[pos++] = c;
+            c = fgetc(input);
         }
         ungetc(c, input);
         token.value[pos] = '\0';
+        return token;
     }
-    // Strings
-    else if (c == '"') {
-        token.type = TOKEN_STRING;
-        token.value[pos++] = c;
-        while ((c = fgetc(input)) != EOF && c != '"') {
-            token.value[pos++] = c;
-            (*column)++;
-        }
-        if (c == '"') {
-            token.value[pos++] = c;
-        } else {
-            token.type = TOKEN_ERROR;
-            strcpy(token.value, "Unterminated string");
-        }
-        token.value[pos] = '\0';
-    }
-    // Characters
-    else if (c == '\'') {
-        token.type = TOKEN_CHAR;
-        token.value[pos++] = c;
-        c = fgetc(input);
-        if (c != EOF && c != '\'') {
+    
+    // Handle identifiers and keywords
+    if(isalpha(c) || c == '_') {
+        token.type = TOKEN_IDENTIFIER;
+        while(isalnum(c) || c == '_') {
             token.value[pos++] = c;
             c = fgetc(input);
-            if (c == '\'') {
-                token.value[pos++] = c;
-            } else {
-                token.type = TOKEN_ERROR;
-                strcpy(token.value, "Unterminated character");
-            }
-        } else {
-            token.type = TOKEN_ERROR;
-            strcpy(token.value, "Invalid character literal");
         }
+        ungetc(c, input);
         token.value[pos] = '\0';
+        
+        if(isKeyword(token.value)) {
+            token.type = TOKEN_KEYWORD;
+        } else {
+            addSymbol(token.value, "IDENTIFIER", 0);
+        }
+        return token;
     }
-    // Operators and delimiters
-    else {
-        token.value[pos++] = c;
-        (*column)++;
-        if (c == '+' || c == '-' || c == '*' || c == '/' || c == '=' || c == '<' || c == '>' || c == '!') {
-            token.type = TOKEN_OPERATOR;
-        } else if (c == ',' || c == ';' || c == '(' || c == ')') {
+    
+    // Handle operators and delimiters
+    token.value[pos++] = c;
+    token.value[pos] = '\0';
+    
+    switch(c) {
+        case ';':
+            token.type = TOKEN_SEMICOLON;
+            break;
+        case ',': case '(': case ')':
             token.type = TOKEN_DELIMITER;
-        } else {
+            break;
+        case '+': case '-': case '*': case '/':
+        case '=': case '<': case '>': case '!':
+            token.type = TOKEN_OPERATOR;
+            int next = fgetc(input);
+            if((c == '<' && next == '=') ||
+               (c == '>' && next == '=') ||
+               (c == '!' && next == '=') ||
+               (c == '<' && next == '>')) {
+                token.value[pos++] = next;
+                token.value[pos] = '\0';
+            } else {
+                ungetc(next, input);
+            }
+            break;
+        default:
             token.type = TOKEN_ERROR;
-            sprintf(token.value, "Unexpected character '%c'", c);
-        }
-        token.value[pos] = '\0';
+            sprintf(token.value, "Invalid character: %c", c);
     }
-
+    
     return token;
-}
-
-// Function to print the symbol table
-void printSymbolTable() {
-    printf("\nSymbol Table:\n");
-    printf("ID | Name\n");
-    printf("---|--------------------\n");
-    for (int i = 0; i < symbolCount; i++) {
-        printf("%2d | %s\n", symbolTable[i].id, symbolTable[i].name);
-    }
-}
-
-int main() {
-    FILE *input = fopen("test.sql", "r");
-    if (!input) {
-        printf("Error opening the file!\n");
-        return 1;
-    }
-
-    int line = 1, column = 1;
-    Token token;
-
-    printf("Tokens found:\n");
-    do {
-        token = getNextToken(input, &line, &column);
-        printf("Token: { Type: %s, Value: '%s', Line: %d, Column: %d }\n",
-               TokenTypeNames[token.type], token.value, token.line, token.column);
-    } while (token.type != TOKEN_EOF && token.type != TOKEN_ERROR);
-
-    fclose(input);
-
-    // Print the symbol table
-    printSymbolTable();
-
-    return 0;
 }
