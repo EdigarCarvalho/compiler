@@ -41,18 +41,9 @@ void freeTokenBuffer(TokenBuffer* buffer) {
     free(buffer);
 }
 
-// Declaração antecipada da função parseWhereClause
 static bool parseWhereClause(TokenBuffer* buffer, int* current);
 
-static bool isSelectStatement(TokenBuffer* buffer, int* current) {
-    // Verificar se é SELECT
-    if (buffer->tokens[*current].type != TOKEN_KEYWORD ||
-        strcmp(buffer->tokens[*current].value, "SELECT") != 0) {
-        return false;
-    }
-    (*current)++;
-
-    // Verificar lista de colunas
+static bool parseColumnList(TokenBuffer* buffer, int* current) {
     do {
         if (buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
             setError("Expected column name", 
@@ -62,8 +53,57 @@ static bool isSelectStatement(TokenBuffer* buffer, int* current) {
             return false;
         }
         (*current)++;
-    } while (buffer->tokens[*current].type == TOKEN_DELIMITER &&
-             strcmp(buffer->tokens[*current++].value, ",") == 0);
+
+        // Verificar se há mais tokens
+        if (*current >= buffer->count) {
+            setError("Unexpected end of input after column name",
+                    buffer->tokens[*current - 1].line,
+                    buffer->tokens[*current - 1].column,
+                    buffer->tokens[*current - 1].value);
+            return false;
+        }
+
+        // Se o próximo token for uma vírgula, avançar e continuar o loop
+        if (buffer->tokens[*current].type == TOKEN_DELIMITER &&
+            strcmp(buffer->tokens[*current].value, ",") == 0) {
+            (*current)++;
+            // Verificar se há mais tokens após a vírgula
+            if (*current >= buffer->count) {
+                setError("Unexpected end of input after comma",
+                        buffer->tokens[*current - 1].line,
+                        buffer->tokens[*current - 1].column,
+                        buffer->tokens[*current - 1].value);
+                return false;
+            }
+        } else {
+            break; // Se não for vírgula, sair do loop
+        }
+    } while (true);
+
+    return true;
+}
+
+static bool isSelectStatement(TokenBuffer* buffer, int* current) {
+    // Verificar se é SELECT
+    if (buffer->tokens[*current].type != TOKEN_KEYWORD ||
+        strcmp(buffer->tokens[*current].value, "SELECT") != 0) {
+        return false;
+    }
+    (*current)++;
+
+    // Verificar se há mais tokens após SELECT
+    if (*current >= buffer->count) {
+        setError("Unexpected end of input after SELECT",
+                buffer->tokens[*current - 1].line,
+                buffer->tokens[*current - 1].column,
+                buffer->tokens[*current - 1].value);
+        return false;
+    }
+
+    // Processar lista de colunas
+    if (!parseColumnList(buffer, current)) {
+        return false;
+    }
 
     // Verificar FROM
     if (buffer->tokens[*current].type != TOKEN_KEYWORD ||
@@ -76,6 +116,15 @@ static bool isSelectStatement(TokenBuffer* buffer, int* current) {
     }
     (*current)++;
 
+    // Verificar se há mais tokens após FROM
+    if (*current >= buffer->count) {
+        setError("Unexpected end of input after FROM",
+                buffer->tokens[*current - 1].line,
+                buffer->tokens[*current - 1].column,
+                buffer->tokens[*current - 1].value);
+        return false;
+    }
+
     // Verificar nome da tabela
     if (buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
         setError("Expected table name",
@@ -86,13 +135,21 @@ static bool isSelectStatement(TokenBuffer* buffer, int* current) {
     }
     (*current)++;
 
+    // Verificar se há mais tokens
+    if (*current >= buffer->count) {
+        setError("Unexpected end of input after table name",
+                buffer->tokens[*current - 1].line,
+                buffer->tokens[*current - 1].column,
+                buffer->tokens[*current - 1].value);
+        return false;
+    }
+
     // Verificar cláusula WHERE opcional
     if (*current < buffer->count && 
         buffer->tokens[*current].type == TOKEN_KEYWORD &&
         strcmp(buffer->tokens[*current].value, "WHERE") == 0) {
         (*current)++;
         
-        // Verificar condição WHERE
         if (!parseWhereClause(buffer, current)) {
             return false;
         }
@@ -101,9 +158,9 @@ static bool isSelectStatement(TokenBuffer* buffer, int* current) {
     // Verificar ponto e vírgula
     if (*current >= buffer->count || buffer->tokens[*current].type != TOKEN_SEMICOLON) {
         setError("Expected semicolon",
-                buffer->tokens[*current].line,
-                buffer->tokens[*current].column,
-                buffer->tokens[*current].value);
+                buffer->tokens[*current - 1].line,
+                buffer->tokens[*current - 1].column,
+                buffer->tokens[*current - 1].value);
         return false;
     }
     (*current)++;

@@ -78,3 +78,6 @@ int main(int argc, char *argv[]) {
     compileSQL(filename);
     return 0;
 }
+
+// gcc compiler.c lexico.c parser.c -o sqlcompiler
+// ./sqlcompiler test.sql
