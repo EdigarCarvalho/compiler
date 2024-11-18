@@ -256,5 +256,42 @@ void parseTokenBuffer(TokenBuffer* buffer) {
 }
 
 bool performSemanticAnalysis(TokenBuffer* buffer) {
-    return true;
+    SemanticContext semanticContext;
+    initSemanticContext(&semanticContext);
+
+    // Populate semantic context from token buffer
+    // This is a simplified example, you'll need to enhance this
+    for (int i = 0; i < buffer->count; i++) {
+        Token token = buffer->tokens[i];
+        
+        // Example: Add tables and columns
+        if (token.type == TOKEN_KEYWORD && strcmp(token.value, "FROM") == 0 && i+1 < buffer->count) {
+            // Assuming next token is table name
+            Table* table = malloc(sizeof(Table));
+            strcpy(table->name, buffer->tokens[i+1].value);
+            table->columnCount = 0;  // You'll populate this from symbol table
+            
+            addTable(&semanticContext, table);
+        }
+    }
+    
+
+    bool result = analyzeSemanticRules(buffer, &semanticContext);
+
+    // Print errors if any
+    if (!result) {
+        printf("Semantic Analysis Errors:\n");
+        for (int i = 0; i < semanticContext.errorCount; i++) {
+            printf("- %s\n", semanticContext.errors[i]);
+        }
+    }
+
+    freeSemanticContext(&semanticContext);
+    return result;
+}
+
+void addTable(SemanticContext* context, Table* table) {
+    if (context->tableCount < MAX_TABLES) {
+        context->tables[context->tableCount++] = table;
+    }
 }

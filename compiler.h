@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include "semantic.h"
 
 #define MAX_TOKEN_LENGTH 256
 #define MAX_SYMBOLS 100
@@ -59,6 +60,7 @@ typedef struct {
     char context[MAX_ERROR_LENGTH];
 } CompilerError;
 
+
 // Function declarations
 Token getNextToken(FILE *input, int *line, int *column);
 TokenBuffer* createTokenBuffer(void);
@@ -73,6 +75,9 @@ void clearError(void);
 void compileSQL(const char* filename);
 bool isKeyword(const char* str);
 bool performSemanticAnalysis(TokenBuffer* buffer);
+bool performSemanticAnalysis(TokenBuffer* buffer);
+void addTable(SemanticContext* context, Table* table);
+
 
 extern const char *TokenTypeNames[];
 extern CompilerError currentError;
