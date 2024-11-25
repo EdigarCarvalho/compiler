@@ -89,6 +89,7 @@ static bool isSelectStatement(TokenBuffer* buffer, int* current) {
         strcmp(buffer->tokens[*current].value, "SELECT") != 0) {
         return false;
     }
+
     (*current)++;
 
     // Verificar se há mais tokens após SELECT
@@ -233,7 +234,7 @@ static bool parseWhereClause(TokenBuffer* buffer, int* current) {
 
 void parseTokenBuffer(TokenBuffer* buffer) {
     int current = 0;
-    
+
     while (current < buffer->count) {
         Token token = buffer->tokens[current];
         
@@ -276,7 +277,7 @@ bool performSemanticAnalysis(TokenBuffer* buffer) {
     }
     
 
-    bool result = analyzeSemanticRules(buffer, &semanticContext);
+    bool result = analyzeSemanticRules(&semanticContext);
 
     // Print errors if any
     if (!result) {

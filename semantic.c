@@ -48,7 +48,7 @@ void addSemanticError(SemanticContext* context, const char* error) {
     }
 }
 
-bool analyzeSemanticRules(TokenBuffer* buffer, SemanticContext* context) {
+bool analyzeSemanticRules(SemanticContext* context) {
     bool isValid = true;
 
     // Example: Validate projections
@@ -72,5 +72,9 @@ bool analyzeSemanticRules(TokenBuffer* buffer, SemanticContext* context) {
 void freeSemanticContext(SemanticContext* context) {
     for (int i = 0; i < context->errorCount; i++) {
         free(context->errors[i]);
+    }
+
+    for (int i = 0; i < context->tableCount; i++) {
+        free(context->tables[i]);
     }
 }
