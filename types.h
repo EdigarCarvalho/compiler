@@ -1,6 +1,8 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include "stdbool.h"
+
 #define MAX_NAME 64
 #define MAX_TABLES 100
 #define MAX_COLUMNS 50
@@ -116,5 +118,10 @@ typedef struct {
     char* errors[100];
     int errorCount;
 } SemanticContext;
+
+extern const char *TokenTypeNames[];
+extern CompilerError currentError;
+extern const char* SQL_KEYWORDS[];
+
 
 #endif

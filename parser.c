@@ -1,8 +1,8 @@
-#include "compiler.h"
+#include "parser.h"
 #include <stdlib.h>
 #include <string.h>
 
-static void setError(const char* message, int line, int column, const char* context) {
+void setError(const char* message, int line, int column, const char* context) {
     currentError.message = message;
     currentError.line = line;
     currentError.column = column;
@@ -41,9 +41,7 @@ void freeTokenBuffer(TokenBuffer* buffer) {
     free(buffer);
 }
 
-static bool parseWhereClause(TokenBuffer* buffer, int* current);
-
-static bool parseColumnList(TokenBuffer* buffer, int* current) {
+bool parseColumnList(TokenBuffer* buffer, int* current) {
     do {
         if (buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
             setError("Expected column name", 
@@ -83,7 +81,7 @@ static bool parseColumnList(TokenBuffer* buffer, int* current) {
     return true;
 }
 
-static bool isSelectStatement(TokenBuffer* buffer, int* current) {
+bool isSelectStatement(TokenBuffer* buffer, int* current) {
     // Verificar se é SELECT
     if (buffer->tokens[*current].type != TOKEN_KEYWORD ||
         strcmp(buffer->tokens[*current].value, "SELECT") != 0) {
@@ -169,7 +167,7 @@ static bool isSelectStatement(TokenBuffer* buffer, int* current) {
     return true;
 }
 
-static bool parseWhereClause(TokenBuffer* buffer, int* current) {
+bool parseWhereClause(TokenBuffer* buffer, int* current) {
     // Verificar se ainda há tokens para processar
     if (*current >= buffer->count) {
         setError("Unexpected end of input in WHERE clause",
