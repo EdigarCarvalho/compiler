@@ -81,45 +81,35 @@ bool parseColumnList(TokenBuffer* buffer, int* current) {
     return true;
 }
 
-bool parseSelectStatement(TokenBuffer* buffer, int* current) {
-    // Verify SELECT keyword
-    if (buffer->tokens[*current].type != TOKEN_KEYWORD ||
-        strcmp(buffer->tokens[*current].value, "SELECT") != 0) {
-        return false;
-    }
-    (*current)++;
+bool parseProjectionItem(TokenBuffer* buffer, int* current) {
+    // Support for complex projection items:
+    // 1. Simple column names
+    // 2. Aggregate functions
+    // 3. Expressions
+    // 4. Aliases
 
-    // Enhanced projection list parsing (supporting functions and aliases)
-    while (*current < buffer->count && 
-           buffer->tokens[*current].type != TOKEN_KEYWORD &&
-           strcmp(buffer->tokens[*current].value, "FROM") != 0) {
+    // Aggregate functions
+    if (buffer->tokens[*current].type == TOKEN_KEYWORD) {
+        const char* aggregateFunctions[] = {
+            "COUNT", "SUM", "AVG", "MAX", "MIN"
+        };
+        bool isAggregateFunction = false;
         
-        // Support for function calls like COUNT(), SUM(), MAX()
-        if (buffer->tokens[*current].type == TOKEN_KEYWORD) {
-            // Check if it's an aggregate function
-            const char* functions[] = {"COUNT", "SUM", "MAX", "MIN", "AVG"};
-            bool isFunction = false;
-            size_t functionCount = sizeof(functions)/sizeof(functions[0]);
-            for (size_t i = 0; i < functionCount; i++) {
-                if (strcmp(buffer->tokens[*current].value, functions[i]) == 0) {
-                    isFunction = true;
-                    break;
-                }
+        for (size_t i = 0; i < sizeof(aggregateFunctions)/sizeof(aggregateFunctions[0]); i++) {
+            if (strcmp(buffer->tokens[*current].value, aggregateFunctions[i]) == 0) {
+                isAggregateFunction = true;
+                break;
             }
-            
-            if (!isFunction) {
-                setError("Unexpected keyword in projection", 
-                         buffer->tokens[*current].line,
-                         buffer->tokens[*current].column,
-                         buffer->tokens[*current].value);
-                return false;
-            }
-            
-            // Function call - expect opening parenthesis
+        }
+
+        if (isAggregateFunction) {
             (*current)++;
-            if (buffer->tokens[*current].type != TOKEN_DELIMITER ||
+
+            // Opening parenthesis
+            if (*current >= buffer->count || 
+                buffer->tokens[*current].type != TOKEN_DELIMITER ||
                 strcmp(buffer->tokens[*current].value, "(") != 0) {
-                setError("Expected '(' after function name", 
+                setError("Expected '(' after aggregate function", 
                          buffer->tokens[*current-1].line,
                          buffer->tokens[*current-1].column,
                          buffer->tokens[*current-1].value);
@@ -127,11 +117,26 @@ bool parseSelectStatement(TokenBuffer* buffer, int* current) {
             }
             (*current)++;
 
-            // Function argument (column or *)
+            // Function argument (column, *, or expression)
+            if (*current >= buffer->count) {
+                setError("Unexpected end of input in function argument", 
+                         buffer->tokens[*current-1].line,
+                         buffer->tokens[*current-1].column,
+                         buffer->tokens[*current-1].value);
+                return false;
+            }
+
+            // Support for DISTINCT in aggregate functions
+            if (buffer->tokens[*current].type == TOKEN_KEYWORD &&
+                strcmp(buffer->tokens[*current].value, "DISTINCT") == 0) {
+                (*current)++;
+            }
+
+            // Support for column, * or potentially complex expressions
             if (buffer->tokens[*current].type != TOKEN_IDENTIFIER &&
-                (buffer->tokens[*current].type != TOKEN_OPERATOR || 
-                 strcmp(buffer->tokens[*current].value, "*") != 0)) {
-                setError("Expected column or * in function", 
+                !(buffer->tokens[*current].type == TOKEN_OPERATOR && 
+                  strcmp(buffer->tokens[*current].value, "*") == 0)) {
+                setError("Invalid function argument", 
                          buffer->tokens[*current].line,
                          buffer->tokens[*current].column,
                          buffer->tokens[*current].value);
@@ -140,7 +145,8 @@ bool parseSelectStatement(TokenBuffer* buffer, int* current) {
             (*current)++;
 
             // Closing parenthesis
-            if (buffer->tokens[*current].type != TOKEN_DELIMITER ||
+            if (*current >= buffer->count || 
+                buffer->tokens[*current].type != TOKEN_DELIMITER ||
                 strcmp(buffer->tokens[*current].value, ")") != 0) {
                 setError("Expected ')' after function argument", 
                          buffer->tokens[*current-1].line,
@@ -149,49 +155,88 @@ bool parseSelectStatement(TokenBuffer* buffer, int* current) {
                 return false;
             }
             (*current)++;
-        } else if (buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
-            setError("Expected column or function in projection", 
-                     buffer->tokens[*current].line,
-                     buffer->tokens[*current].column,
-                     buffer->tokens[*current].value);
-            return false;
-        } else {
-            // Simple column name
-            (*current)++;
         }
+    } else if (buffer->tokens[*current].type == TOKEN_IDENTIFIER) {
+        // Simple column name or table-qualified column
+        (*current)++;
+    } else {
+        setError("Invalid projection item", 
+                 buffer->tokens[*current].line,
+                 buffer->tokens[*current].column,
+                 buffer->tokens[*current].value);
+        return false;
+    }
 
-        // Optional AS keyword and alias
-        if (*current < buffer->count && 
-            buffer->tokens[*current].type == TOKEN_KEYWORD &&
-            strcmp(buffer->tokens[*current].value, "AS") == 0) {
-            (*current)++;
-            
-            // Verify alias
-            if (*current >= buffer->count || 
-                buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
-                setError("Expected identifier after AS", 
-                         buffer->tokens[*current-1].line,
-                         buffer->tokens[*current-1].column,
-                         buffer->tokens[*current-1].value);
-                return false;
+    // Optional alias with AS keyword
+    if (*current < buffer->count && 
+        buffer->tokens[*current].type == TOKEN_KEYWORD &&
+        strcmp(buffer->tokens[*current].value, "AS") == 0) {
+        (*current)++;
+        
+        // Verify alias
+        if (*current >= buffer->count || 
+            buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
+            setError("Expected identifier after AS", 
+                     buffer->tokens[*current-1].line,
+                     buffer->tokens[*current-1].column,
+                     buffer->tokens[*current-1].value);
+            return false;
+        }
+        (*current)++;
+    }
+
+    return true;
+}
+
+bool parseSelectStatement(TokenBuffer* buffer, int* current) {
+    // Verify SELECT keyword
+    if (buffer->tokens[*current].type != TOKEN_KEYWORD ||
+        strcmp(buffer->tokens[*current].value, "SELECT") != 0) {
+        setError("Expected SELECT keyword", 
+                 buffer->tokens[*current].line,
+                 buffer->tokens[*current].column,
+                 buffer->tokens[*current].value);
+        return false;
+    }
+    (*current)++;
+
+    // Optional DISTINCT keyword
+    if (*current < buffer->count && 
+        buffer->tokens[*current].type == TOKEN_KEYWORD &&
+        strcmp(buffer->tokens[*current].value, "DISTINCT") == 0) {
+        (*current)++;
+    }
+
+    // Enhanced projection parsing
+    bool firstProjection = true;
+    while (*current < buffer->count) {
+        if (!firstProjection) {
+            // Check for comma between projections
+            if (buffer->tokens[*current].type != TOKEN_DELIMITER ||
+                strcmp(buffer->tokens[*current].value, ",") != 0) {
+                break;  // No more projections
             }
             (*current)++;
         }
 
-        // Check for comma or break if FROM encountered
-        if (*current >= buffer->count) break;
+        // Parse projection item (column, function, etc.)
+        if (!parseProjectionItem(buffer, current)) {
+            return false;
+        }
 
-        if (buffer->tokens[*current].type == TOKEN_DELIMITER &&
-            strcmp(buffer->tokens[*current].value, ",") == 0) {
-            (*current)++;
-        } else if (buffer->tokens[*current].type == TOKEN_KEYWORD &&
-                   strcmp(buffer->tokens[*current].value, "FROM") == 0) {
+        firstProjection = false;
+
+        // Check if next keyword is FROM to break projection parsing
+        if (*current < buffer->count && 
+            buffer->tokens[*current].type == TOKEN_KEYWORD &&
+            strcmp(buffer->tokens[*current].value, "FROM") == 0) {
             break;
         }
     }
 
-    // FROM keyword
-    if (buffer->tokens[*current].type != TOKEN_KEYWORD ||
+    // Require FROM keyword
+    if (*current >= buffer->count || 
+        buffer->tokens[*current].type != TOKEN_KEYWORD ||
         strcmp(buffer->tokens[*current].value, "FROM") != 0) {
         setError("Expected FROM keyword", 
                  buffer->tokens[*current].line,
@@ -201,7 +246,7 @@ bool parseSelectStatement(TokenBuffer* buffer, int* current) {
     }
     (*current)++;
 
-    // Table name or join
+    // Table name or subquery
     if (*current >= buffer->count || 
         buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
         setError("Expected table name", 
@@ -213,110 +258,196 @@ bool parseSelectStatement(TokenBuffer* buffer, int* current) {
     (*current)++;
 
     // Optional JOIN clause
-    while (*current < buffer->count) {
-        if (buffer->tokens[*current].type == TOKEN_KEYWORD &&
-            strcmp(buffer->tokens[*current].value, "JOIN") == 0) {
-            (*current)++;
-            
-            // Table name
-            if (*current >= buffer->count || 
-                buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
-                setError("Expected table name after JOIN", 
-                         buffer->tokens[*current-1].line,
-                         buffer->tokens[*current-1].column,
-                         buffer->tokens[*current-1].value);
-                return false;
-            }
-            (*current)++;
+    while (*current < buffer->count && 
+           buffer->tokens[*current].type == TOKEN_KEYWORD &&
+           strcmp(buffer->tokens[*current].value, "JOIN") == 0) {
+        (*current)++;
 
-            // ON keyword
-            if (*current >= buffer->count || 
-                buffer->tokens[*current].type != TOKEN_KEYWORD ||
-                strcmp(buffer->tokens[*current].value, "ON") != 0) {
-                setError("Expected ON keyword", 
-                         buffer->tokens[*current-1].line,
-                         buffer->tokens[*current-1].column,
-                         buffer->tokens[*current-1].value);
-                return false;
-            }
-            (*current)++;
-
-            // Join condition
-            // Simplified join condition parsing
-            while (*current < buffer->count && 
-                   buffer->tokens[*current].type != TOKEN_KEYWORD) {
-                (*current)++;
-            }
-        } else {
-            break;
+        // Table name
+        if (*current >= buffer->count || 
+            buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
+            setError("Expected table name after JOIN", 
+                     buffer->tokens[*current-1].line,
+                     buffer->tokens[*current-1].column,
+                     buffer->tokens[*current-1].value);
+            return false;
         }
-    }
+        (*current)++;
 
-    // Remaining clauses (WHERE, GROUP BY, HAVING, ORDER BY)
-    while (*current < buffer->count) {
-        Token currentToken = buffer->tokens[*current];
-        
-        if (currentToken.type == TOKEN_KEYWORD) {
-            if (strcmp(currentToken.value, "WHERE") == 0) {
-                // Start parsing WHERE clause
+        // ON or other join conditions
+        if (*current >= buffer->count || 
+            buffer->tokens[*current].type != TOKEN_KEYWORD ||
+            strcmp(buffer->tokens[*current].value, "ON") != 0) {
+            setError("Expected ON keyword", 
+                     buffer->tokens[*current-1].line,
+                     buffer->tokens[*current-1].column,
+                     buffer->tokens[*current-1].value);
+            return false;
+        }
+        (*current)++;
+
+        // Basic join condition parsing
+        while (*current < buffer->count) {
+            // Column reference
+            if (buffer->tokens[*current].type == TOKEN_IDENTIFIER) {
                 (*current)++;
-                if (!parseWhereClause(buffer, current)) {
-                    return false;
-                }
-            } else if (strcmp(currentToken.value, "GROUP") == 0) {
-                // Parse GROUP BY
+            }
+            
+            // Comparison operators
+            if (*current < buffer->count && 
+                buffer->tokens[*current].type == TOKEN_OPERATOR) {
                 (*current)++;
-                if (*current >= buffer->count || 
-                    buffer->tokens[*current].type != TOKEN_KEYWORD ||
-                    strcmp(buffer->tokens[*current].value, "BY") != 0) {
-                    setError("Expected BY after GROUP", 
-                             buffer->tokens[*current-1].line,
-                             buffer->tokens[*current-1].column,
-                             buffer->tokens[*current-1].value);
-                    return false;
-                }
-                (*current)++;
-                
-                // Parse group by columns
-                while (*current < buffer->count && 
-                       buffer->tokens[*current].type != TOKEN_KEYWORD) {
-                    (*current)++;
-                }
-            } else if (strcmp(currentToken.value, "HAVING") == 0) {
-                // Parse HAVING clause
-                (*current)++;
-                while (*current < buffer->count && 
-                       buffer->tokens[*current].type != TOKEN_KEYWORD) {
-                    (*current)++;
-                }
-            } else if (strcmp(currentToken.value, "ORDER") == 0) {
-                // Parse ORDER BY
-                (*current)++;
-                if (*current >= buffer->count || 
-                    buffer->tokens[*current].type != TOKEN_KEYWORD ||
-                    strcmp(buffer->tokens[*current].value, "BY") != 0) {
-                    setError("Expected BY after ORDER", 
-                             buffer->tokens[*current-1].line,
-                             buffer->tokens[*current-1].column,
-                             buffer->tokens[*current-1].value);
-                    return false;
-                }
-                (*current)++;
-                
-                // Parse order by columns
-                while (*current < buffer->count && 
-                       buffer->tokens[*current].type != TOKEN_SEMICOLON) {
-                    (*current)++;
-                }
-            } else {
+            }
+
+            // Break condition parsing on logical keywords or known clauses
+            if (*current >= buffer->count || 
+                (buffer->tokens[*current].type == TOKEN_KEYWORD && 
+                 (strcmp(buffer->tokens[*current].value, "JOIN") == 0 ||
+                  strcmp(buffer->tokens[*current].value, "WHERE") == 0 ||
+                  strcmp(buffer->tokens[*current].value, "GROUP") == 0 ||
+                  strcmp(buffer->tokens[*current].value, "ORDER") == 0))) {
                 break;
             }
-        } else {
-            break;
+            (*current)++;
         }
     }
 
-    // Semicolon (optional)
+    // Optional WHERE clause
+    if (*current < buffer->count && 
+        buffer->tokens[*current].type == TOKEN_KEYWORD &&
+        strcmp(buffer->tokens[*current].value, "WHERE") == 0) {
+        (*current)++;
+        if (!parseWhereClause(buffer, current)) {
+            return false;
+        }
+    }
+
+    // Optional GROUP BY clause
+    if (*current < buffer->count && 
+        buffer->tokens[*current].type == TOKEN_KEYWORD &&
+        strcmp(buffer->tokens[*current].value, "GROUP") == 0) {
+        (*current)++;
+        
+        // Require BY keyword
+        if (*current >= buffer->count || 
+            buffer->tokens[*current].type != TOKEN_KEYWORD ||
+            strcmp(buffer->tokens[*current].value, "BY") != 0) {
+            setError("Expected BY after GROUP", 
+                     buffer->tokens[*current-1].line,
+                     buffer->tokens[*current-1].column,
+                     buffer->tokens[*current-1].value);
+            return false;
+        }
+        (*current)++;
+
+        // Group by columns
+        bool firstGroupColumn = true;
+        while (*current < buffer->count) {
+            if (!firstGroupColumn) {
+                // Require comma
+                if (buffer->tokens[*current].type != TOKEN_DELIMITER || 
+                    strcmp(buffer->tokens[*current].value, ",") != 0) {
+                    break;
+                }
+                (*current)++;
+            }
+
+            // Column name
+            if (buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
+                setError("Expected column name in GROUP BY", 
+                         buffer->tokens[*current].line,
+                         buffer->tokens[*current].column,
+                         buffer->tokens[*current].value);
+                return false;
+            }
+            (*current)++;
+            firstGroupColumn = false;
+
+            // Break on known following clauses
+            if (*current < buffer->count && 
+                buffer->tokens[*current].type == TOKEN_KEYWORD && 
+                (strcmp(buffer->tokens[*current].value, "HAVING") == 0 ||
+                 strcmp(buffer->tokens[*current].value, "ORDER") == 0)) {
+                break;
+            }
+        }
+    }
+
+    // Optional HAVING clause
+    if (*current < buffer->count && 
+        buffer->tokens[*current].type == TOKEN_KEYWORD &&
+        strcmp(buffer->tokens[*current].value, "HAVING") == 0) {
+        (*current)++;
+        
+        // Parse HAVING conditions
+        while (*current < buffer->count) {
+            // Break when next major clause is encountered
+            if (buffer->tokens[*current].type == TOKEN_KEYWORD && 
+                (strcmp(buffer->tokens[*current].value, "ORDER") == 0)) {
+                break;
+            }
+            (*current)++;
+        }
+    }
+
+    // Optional ORDER BY clause
+    if (*current < buffer->count && 
+        buffer->tokens[*current].type == TOKEN_KEYWORD &&
+        strcmp(buffer->tokens[*current].value, "ORDER") == 0) {
+        (*current)++;
+        
+        // Require BY keyword
+        if (*current >= buffer->count || 
+            buffer->tokens[*current].type != TOKEN_KEYWORD ||
+            strcmp(buffer->tokens[*current].value, "BY") != 0) {
+            setError("Expected BY after ORDER", 
+                     buffer->tokens[*current-1].line,
+                     buffer->tokens[*current-1].column,
+                     buffer->tokens[*current-1].value);
+            return false;
+        }
+        (*current)++;
+
+        // Order by columns
+        bool firstOrderColumn = true;
+        while (*current < buffer->count) {
+            if (!firstOrderColumn) {
+                // Require comma
+                if (buffer->tokens[*current].type != TOKEN_DELIMITER || 
+                    strcmp(buffer->tokens[*current].value, ",") != 0) {
+                    break;
+                }
+                (*current)++;
+            }
+
+            // Column name
+            if (buffer->tokens[*current].type != TOKEN_IDENTIFIER) {
+                setError("Expected column name in ORDER BY", 
+                         buffer->tokens[*current].line,
+                         buffer->tokens[*current].column,
+                         buffer->tokens[*current].value);
+                return false;
+            }
+            (*current)++;
+            firstOrderColumn = false;
+
+            // Optional sort direction
+            if (*current < buffer->count && 
+                buffer->tokens[*current].type == TOKEN_KEYWORD && 
+                (strcmp(buffer->tokens[*current].value, "ASC") == 0 ||
+                 strcmp(buffer->tokens[*current].value, "DESC") == 0)) {
+                (*current)++;
+            }
+
+            // Break on statement end
+            if (*current < buffer->count && 
+                buffer->tokens[*current].type == TOKEN_SEMICOLON) {
+                break;
+            }
+        }
+    }
+
+    // Optional semicolon
     if (*current < buffer->count && 
         buffer->tokens[*current].type == TOKEN_SEMICOLON) {
         (*current)++;
