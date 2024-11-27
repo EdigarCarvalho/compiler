@@ -1,4 +1,6 @@
 #include "lexico.h"
+#include <ctype.h>
+#include <string.h>
 
 const char *TokenTypeNames[] = {
     "IDENTIFIER",
@@ -21,7 +23,7 @@ const char* SQL_KEYWORDS[] = {
     "AND", "OR", "NOT", "IN", "BETWEEN", "LIKE", "IS", "NULL",
     "ORDER", "BY", "GROUP", "HAVING", "JOIN", "LEFT", "RIGHT",
     "INNER", "OUTER", "ON", "AS", "DISTINCT", "COUNT", "SUM",
-    "AVG", "MAX", "MIN", "INTO", "VALUES", "SET", NULL
+    "AVG", "MAX", "MIN", "INTO", "VALUES", "SET", "BETWEEN", "DESC", NULL
 };
 
 Symbol symbolTable[MAX_SYMBOLS];
@@ -108,9 +110,10 @@ Token getNextToken(FILE *input, int *line, int *column) {
         return token;
     }
     
-    // Handle comments
+    // Handle comments (single-line)
     if(c == '-' && (c = fgetc(input)) == '-') {
         token.type = TOKEN_COMMENT;
+        pos = 0;
         while((c = fgetc(input)) != EOF && c != '\n') {
             if(pos < MAX_TOKEN_LENGTH - 1) {
                 token.value[pos++] = c;
@@ -155,6 +158,7 @@ Token getNextToken(FILE *input, int *line, int *column) {
                 }
                 token.type = TOKEN_FLOAT;
             }
+            if(pos >= MAX_TOKEN_LENGTH - 1) break;
             token.value[pos++] = c;
             c = fgetc(input);
         }
@@ -166,13 +170,39 @@ Token getNextToken(FILE *input, int *line, int *column) {
     // Handle identifiers and keywords
     if(isalpha(c) || c == '_') {
         token.type = TOKEN_IDENTIFIER;
-        while(isalnum(c) || c == '_') {
+        while(isalnum(c) || c == '_' || c == '.') {
+            if(pos >= MAX_TOKEN_LENGTH - 1) break;
             token.value[pos++] = c;
             c = fgetc(input);
         }
         ungetc(c, input);
         token.value[pos] = '\0';
         
+        // Check for valid identifier format
+        char* dot = strchr(token.value, '.');
+        if (dot) {
+            // Ensure dot is not at the start or end, and there's only one dot
+            if (dot == token.value || 
+                dot == token.value + strlen(token.value) - 1 || 
+                strchr(dot + 1, '.') != NULL) {
+                token.type = TOKEN_ERROR;
+                
+                // Truncate the original token value if it's too long
+                char truncatedValue[MAX_TOKEN_LENGTH];
+                strncpy(truncatedValue, token.value, sizeof(truncatedValue) - 1);
+                truncatedValue[sizeof(truncatedValue) - 1] = '\0';
+                
+                // Safely format error message with truncated value
+                char errorMsg[MAX_TOKEN_LENGTH];
+                snprintf(errorMsg, sizeof(errorMsg), "Invalid identifier format: %.100s", truncatedValue);
+                
+                // Copy error message to token value
+                strncpy(token.value, errorMsg, sizeof(token.value) - 1);
+                token.value[sizeof(token.value) - 1] = '\0';
+            }
+        }
+        
+        // Check if the token is a keyword AFTER checking identifier format
         if(isKeyword(token.value)) {
             token.type = TOKEN_KEYWORD;
         } else {
@@ -208,7 +238,7 @@ Token getNextToken(FILE *input, int *line, int *column) {
             break;
         default:
             token.type = TOKEN_ERROR;
-            sprintf(token.value, "Invalid character: %c", c);
+            snprintf(token.value, sizeof(token.value), "Invalid character: %c", c);
     }
     
     return token;
