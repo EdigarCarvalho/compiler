@@ -1,11 +1,4 @@
-#define MAX_INTERMEDIATE_CODE 1000
-
-typedef struct {
-    char op[20];
-    char arg1[50];
-    char arg2[50];
-    char result[50];
-} IntermediateCode;
+#include "intermediary.h"
 
 IntermediateCode intermediateCode[MAX_INTERMEDIATE_CODE];
 int intermediateCodeCount = 0;
@@ -13,8 +6,14 @@ int intermediateCodeCount = 0;
 void generateIntermediateCode(const char* op, const char* arg1, const char* arg2, const char* result) {
     if (intermediateCodeCount < MAX_INTERMEDIATE_CODE) {
         strcpy(intermediateCode[intermediateCodeCount].op, op);
-        strcpy(intermediateCode[intermediateCodeCount].arg1, arg1);
-        strcpy(intermediateCode[intermediateCodeCount].arg2, arg2);
+        if (arg1)
+            strcpy(intermediateCode[intermediateCodeCount].arg1, arg1);
+        else
+            strcpy(intermediateCode[intermediateCodeCount].arg1, "");
+        if (arg2)
+            strcpy(intermediateCode[intermediateCodeCount].arg2, arg2);
+        else
+            strcpy(intermediateCode[intermediateCodeCount].arg2, "");
         strcpy(intermediateCode[intermediateCodeCount].result, result);
         intermediateCodeCount++;
     } else {

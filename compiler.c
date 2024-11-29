@@ -52,7 +52,7 @@ void compileSQL(const char* filename) {
     
     printf("\n=== Análise Sintática ===\n");
     // Passar o buffer de tokens para o parser ao invés do arquivo
-    parseTokenBuffer(tokenBuffer);
+    // parseTokenBuffer(tokenBuffer);
 
     // Verificar erros sintáticos
     if (getErrorMessage() != NULL) {
@@ -66,6 +66,9 @@ void compileSQL(const char* filename) {
         if (performSemanticAnalysis(tokenBuffer)) {
             printf("Análise semântica completada com sucesso\n");
         }
+
+        printf("\n=== Código Intermediário ===\n");
+        printIntermediateCode();
     }
 
     freeTokenBuffer(tokenBuffer);

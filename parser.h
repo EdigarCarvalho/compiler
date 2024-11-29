@@ -1,9 +1,10 @@
 #ifndef PARSER_H
 #define PARSER_H
 
+#include <stdbool.h>
 #include "types.h"
-#include "stdbool.h"
 #include "semantic.h"
+#include "intermediary.h"
 
 void setError(const char* message, int line, int column, const char* context);
 const char* getErrorMessage();

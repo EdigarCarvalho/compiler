@@ -7,6 +7,7 @@
 #include "parser.h"
 #include "types.h"
 #include "lexico.h"
+#include "intermediary.h"
 
 // Function declarations
 void compileSQL(const char* filename);
