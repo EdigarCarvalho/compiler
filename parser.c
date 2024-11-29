@@ -706,25 +706,6 @@ bool performSemanticAnalysis(TokenBuffer *buffer)
             table->columnCount = 0; // You'll populate this from symbol table
 
             addTable(&semanticContext, table);
-
-            generateIntermediateCode("LOAD_TABLE", table->name, "", "");
-        }
-
-        if (token.type == TOKEN_KEYWORD && strcmp(token.value, "SELECT") == 0) {
-            for (int j = i + 1; j < buffer->count && strcmp(buffer->tokens[j].value, "FROM") != 0; j++) {
-                if (buffer->tokens[j].type == TOKEN_IDENTIFIER) {
-                    generateIntermediateCode("PROJECTION", buffer->tokens[j].value, "", "");
-                }
-            }
-        }
-
-        if (token.type == TOKEN_KEYWORD && strcmp(token.value, "WHERE") == 0) {
-            if (i + 3 < buffer->count) {
-                generateIntermediateCode("FILTER",
-                    buffer->tokens[i + 1].value,
-                    buffer->tokens[i + 2].value,
-                    buffer->tokens[i + 3].value);
-            }
         }
     }
 

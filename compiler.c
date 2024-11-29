@@ -68,6 +68,7 @@ void compileSQL(const char* filename) {
         }
 
         printf("\n=== Código Intermediário ===\n");
+        generateIntermediateCode(tokenBuffer);
         printIntermediateCode();
     }
 
